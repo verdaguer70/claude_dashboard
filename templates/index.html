@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Modular</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <i class="fas fa-cube logo"></i>
+                <h2>Dashboard</h2>
+            </div>
+            <nav class="sidebar-nav">
+                {% for module_id, module in modules.items() %}
+                <a href="#" class="nav-item {% if loop.first %}active{% endif %}" data-module="{{ module.id }}">
+                    <i class="{{ module.icon }}"></i>
+                    <span>{{ module.name }}</span>
+                </a>
+                {% endfor %}
+            </nav>
+        </aside>
+        
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-header">
+                <button class="toggle-sidebar-btn" onclick="toggleSidebar()">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <h1>Panel de Control</h1>
+                <div class="header-actions">
+                    <button class="refresh-btn" onclick="refreshDashboard()">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </div>
+            </header>
+            
+            <div class="modules-grid" id="modulesGrid">
+                <!-- Los módulos se cargarán dinámicamente aquí -->
+            </div>
+        </main>
+    </div>
+    
+    <script src="/static/js/base-module.js"></script>
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>
