@@ -3,7 +3,7 @@
 # Verifica que se ha pasado una descripción
 if [ -z "$1" ]; then
   echo "❌ Error: Debes proporcionar una descripción para el commit."
-  echo "Uso: ./gitpush.sh \"mensaje del commit\""
+  echo "Uso: ./push.sh \"mensaje del commit\""
   exit 1
 fi
 

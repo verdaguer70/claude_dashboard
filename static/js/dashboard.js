@@ -32,6 +32,11 @@ async function loadModuleScripts() {
     console.log('Módulo json-editor.js no encontrado')
     );
 
+
+    await loadScript('/static/js/modules/job-scheduler.js').catch(err => 
+    console.log('Módulo job-scheduler.js no encontrado')
+    );
+
    
 }
 

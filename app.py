@@ -12,7 +12,7 @@ import database  # Para crear las tablas
 from modules.module_manager import ModuleManager
 from modules.example_module import ExampleModule
 from modules.json_editor_module import JsonEditorModule
-
+from modules.job_scheduler_module import JobSchedulerModule
 
 
 
@@ -42,6 +42,9 @@ module_manager.register_module(example_module)
 
 json_editor = JsonEditorModule()
 module_manager.register_module(json_editor)
+
+job_scheduler = JobSchedulerModule()
+module_manager.register_module(job_scheduler)
 
 
 
