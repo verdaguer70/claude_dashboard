@@ -79,4 +79,4 @@ if __name__ == "__main__":
         print(f"   - {module['name']} ({module['id']}): {module['endpoint']}")
     
     # Usar string de importación para habilitar reload
-    uvicorn.run("app:app", host="127.0.0.2", port=8000, reload=True)
+    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True)

@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -48,7 +48,7 @@ def test_connection():
     """Prueba la conexión a la base de datos"""
     try:
         with engine.connect() as connection:
-            result = connection.execute("SELECT 1")
+            result = connection.execute(text("SELECT 1"))
             print("✅ Conexión a MySQL exitosa")
             return True
     except Exception as e:
@@ -59,7 +59,7 @@ def test_connection():
 try:
     # Probar conexión al importar
     with engine.connect() as connection:
-        connection.execute("SELECT 1")
+        connection.execute(text("SELECT 1"))
     print("✅ Conexión a MySQL establecida")
 except Exception as e:
     print(f"⚠️  Advertencia: No se pudo conectar a MySQL: {e}")
