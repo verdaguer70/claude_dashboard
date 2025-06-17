@@ -9,7 +9,7 @@ class JobSchedulerModule extends BaseModule {
             endpoint: '/api/job-scheduler',
             description: 'Gestión y programación de scripts automáticos',
             size: 'large',
-            refreshInterval: 30000 // Actualizar cada 30 segundos
+            refreshInterval: 10000 // Actualizar cada 30 segundos
         });
         
         this.selectedJob = null;
@@ -103,6 +103,27 @@ class JobSchedulerModule extends BaseModule {
                     <p>Selecciona un job del panel lateral para configurarlo</p>
                 </div>
                 
+                <!-- Herramientas de administración -->
+                <div class="admin-tools" style="margin-bottom: 2rem; padding: 1.5rem; background: rgba(255, 255, 255, 0.05); border-radius: 12px;">
+                    <h3 style="margin-bottom: 1rem;"><i class="fas fa-tools"></i> Herramientas de Administración</h3>
+                    <div class="tool-row" style="display: flex; align-items: center; gap: 1rem;">
+                        <label style="font-weight: 500;">Eliminar Job de BD:</label>
+                        <select id="job-to-delete" style="flex: 1; max-width: 300px; padding: 0.75rem; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: var(--text-primary);">
+                            <option value="">-- Seleccionar Job --</option>
+                            ${this.scheduledJobs.map(job => `
+                                <option value="${job.job_id}">${job.job_name}</option>
+                            `).join('')}
+                        </select>
+                        <button class="btn" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);" 
+                                onclick="jobScheduler.deleteSelectedJob()">
+                            <i class="fas fa-trash"></i> Eliminar
+                        </button>
+                    </div>
+                    <small style="display: block; margin-top: 0.5rem; color: var(--text-secondary);">
+                        <i class="fas fa-info-circle"></i> Esto eliminará toda la configuración y programación del job seleccionado
+                    </small>
+                </div>
+                
                 <!-- Jobs activos -->
                 ${activeJobs.length > 0 ? `
                     <div class="scheduled-jobs-section">
@@ -182,12 +203,6 @@ class JobSchedulerModule extends BaseModule {
                         <button class="btn btn-success" onclick="jobScheduler.saveConfig()">
                             <i class="fas fa-save"></i> Guardar
                         </button>
-                        ${job.job_id in this.scheduledJobs.map(j => j.job_id) || job.last_run ? `
-                            <button class="btn" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);" 
-                                    onclick="jobScheduler.deleteFromDB()">
-                                <i class="fas fa-trash"></i> Eliminar de BD
-                            </button>
-                        ` : ''}
                     </div>
                 </div>
                 
@@ -381,15 +396,23 @@ class JobSchedulerModule extends BaseModule {
         }
     }
 
-    async deleteFromDB() {
-        if (!this.selectedJob) return;
+    async deleteSelectedJob() {
+        const selectElement = document.getElementById('job-to-delete');
+        const jobId = selectElement?.value;
         
-        if (!confirm(`¿Eliminar ${this.selectedJob.job_name} de la base de datos?\n\nEsto eliminará toda la configuración y programación, pero el job seguirá disponible.`)) {
+        if (!jobId) {
+            this.showNotification('Por favor selecciona un job', 'error');
+            return;
+        }
+        
+        const jobName = selectElement.options[selectElement.selectedIndex].text;
+        
+        if (!confirm(`¿Eliminar ${jobName} de la base de datos?\n\nEsto eliminará toda la configuración y programación.`)) {
             return;
         }
         
         try {
-            const response = await fetch(`${this.endpoint}/jobs/${this.selectedJob.job_id}`, {
+            const response = await fetch(`${this.endpoint}/jobs/${jobId}`, {
                 method: 'DELETE'
             });
             
@@ -397,8 +420,10 @@ class JobSchedulerModule extends BaseModule {
             if (result.status === 'success') {
                 this.showNotification('Job eliminado de la base de datos', 'success');
                 
-                // Volver al dashboard
-                this.selectedJob = null;
+                // Resetear el selector
+                selectElement.value = '';
+                
+                // Recargar jobs
                 await this.loadJobs();
                 this.render();
             } else {

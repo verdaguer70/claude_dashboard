@@ -88,7 +88,7 @@ class JobSchedulerModule(BaseModule):
                 print(f"❌ Error en scheduler loop: {e}")
             
             # Esperar 30 segundos antes de la siguiente verificación
-            time.sleep(30)
+            time.sleep(5)
     
     async def _check_and_run_jobs(self):
         """Verifica y ejecuta jobs programados"""
@@ -177,7 +177,10 @@ class JobSchedulerModule(BaseModule):
         try:
             job = self.jobs_registry.get(job_id)
             if not job:
+                print(f"❌ Job {job_id} no encontrado en el registro")
                 return
+            
+            print(f"🔄 Iniciando ejecución de job: {job_id}")
             
             # Marcar como running
             db.execute(
@@ -186,8 +189,10 @@ class JobSchedulerModule(BaseModule):
             )
             db.commit()
             
-            # Ejecutar job
+            # Ejecutar job - aquí es donde se ejecuta el código específico del job
             result = job.run(config_json or "{}", db)
+            
+            print(f"📊 Resultado de {job_id}: {result.get('status', 'unknown')}")
             
             # Guardar resultado
             status = result.get("status", "failed")
@@ -197,10 +202,16 @@ class JobSchedulerModule(BaseModule):
                 "duration_seconds": result.get("duration_seconds", 0)
             }
             
+            # Incluir toda la salida del job
             if "output" in result:
                 output_summary["summary"] = str(result["output"])[:500]
             if "error" in result:
                 output_summary["error"] = result["error"]
+            
+            # Incluir otros campos del resultado
+            for key, value in result.items():
+                if key not in ["status", "started_at", "finished_at", "duration_seconds", "output", "error"]:
+                    output_summary[key] = value
             
             # Actualizar con el resultado
             db.execute(
@@ -224,6 +235,9 @@ class JobSchedulerModule(BaseModule):
             
         except Exception as e:
             print(f"❌ Error ejecutando job {job_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            
             # Marcar como failed
             try:
                 db.execute(
@@ -234,7 +248,11 @@ class JobSchedulerModule(BaseModule):
                         WHERE job_id = :job_id
                     """),
                     {
-                        "output": json.dumps({"error": str(e), "timestamp": datetime.now().isoformat()}),
+                        "output": json.dumps({
+                            "error": str(e), 
+                            "timestamp": datetime.now().isoformat(),
+                            "traceback": traceback.format_exc()
+                        }),
                         "job_id": job_id
                     }
                 )
