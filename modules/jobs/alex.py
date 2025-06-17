@@ -1,4 +1,4 @@
-# modules/jobs/daily_check.py
+# modules/jobs/alex.py
 from typing import Dict, Any
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
@@ -7,19 +7,19 @@ from .base_job import BaseJob
 import os
 import time
 
-class DailyCheckJob(BaseJob):
+class AlexJob(BaseJob):
     """
-    daily test
+    hehe
     """
     
     def get_job_id(self) -> str:
-        return "daily_check"
+        return "alex"
     
     def get_name(self) -> str:
-        return "daily check"
+        return "alex"
     
     def get_description(self) -> str:
-        return "daily test"
+        return "hehe"
     
     def get_default_config(self) -> Dict[str, Any]:
         return {
@@ -68,9 +68,10 @@ class DailyCheckJob(BaseJob):
         
       
         
-        resultado = f"Proceso completado con éxito"
+        output_message = f"Test Job completado exitosamente! {param1} {datetime.now().strftime('%H:%M:%S')}"
+
         
         # Retornar resultado
         return {
-            "output": param1
+            "output": output_message.strip(),
         }
