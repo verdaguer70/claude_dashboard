@@ -16,7 +16,6 @@ from pydantic import BaseModel
 # Importar jobs
 from .jobs.base_job import BaseJob
 from .jobs.test import TestJob
-from .jobs.alex import AlexJob
 class JobConfig(BaseModel):
     job_id: str
     config_json: str
@@ -59,8 +58,7 @@ class JobSchedulerModule(BaseModule):
     def _discover_jobs(self):
         """Descubre y registra todos los jobs disponibles"""
         # Registrar jobs manualmente
-        self.register_job(TestJob())
-        self.register_job(AlexJob())# Añadir aquí más jobs según se creen
+        self.register_job(TestJob())# Añadir aquí más jobs según se creen
     
     def register_job(self, job: BaseJob):
         """Registra un job en el sistema"""
