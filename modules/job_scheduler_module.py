@@ -4,6 +4,7 @@ from typing import Dict, Any, List, Optional
 import json
 import asyncio
 import threading
+import time
 from croniter import croniter
 from .base_module import BaseModule, ModuleConfig
 from fastapi import Depends, HTTPException, BackgroundTasks
@@ -15,6 +16,7 @@ from pydantic import BaseModel
 # Importar jobs
 from .jobs.base_job import BaseJob
 from .jobs.test import TestJob
+
 class JobConfig(BaseModel):
     job_id: str
     config_json: str
@@ -57,7 +59,8 @@ class JobSchedulerModule(BaseModule):
     def _discover_jobs(self):
         """Descubre y registra todos los jobs disponibles"""
         # Registrar jobs manualmente
-        self.register_job(TestJob())# Añadir aquí más jobs según se creen
+        self.register_job(TestJob())
+        # Añadir aquí más jobs según se creen
     
     def register_job(self, job: BaseJob):
         """Registra un job en el sistema"""
@@ -73,15 +76,19 @@ class JobSchedulerModule(BaseModule):
             print("🕐 Scheduler iniciado")
     
     def _scheduler_loop(self):
-        """Loop principal del scheduler"""
+        """Loop principal del scheduler - ejecuta cada 30 segundos"""
         while self.scheduler_running:
             try:
-                asyncio.run(self._check_and_run_jobs())
+                # Usar run_in_executor para evitar bloqueos
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self._check_and_run_jobs())
+                loop.close()
             except Exception as e:
-                print(f"❌ Error en scheduler: {e}")
+                print(f"❌ Error en scheduler loop: {e}")
             
-            # Esperar 60 segundos antes de la siguiente verificación
-            threading.Event().wait(60)
+            # Esperar 30 segundos antes de la siguiente verificación
+            time.sleep(30)
     
     async def _check_and_run_jobs(self):
         """Verifica y ejecuta jobs programados"""
@@ -89,112 +96,153 @@ class JobSchedulerModule(BaseModule):
         db = SessionLocal()
         
         try:
-            # Buscar jobs que necesitan ejecutarse
             now = datetime.now()
+            print(f"🔍 Verificando jobs programados a las {now.strftime('%H:%M:%S')}")
+            
+            # Buscar jobs que necesitan ejecutarse
             query = text("""
-                SELECT job_id, config_json 
+                SELECT job_id, config_json, schedule_type, schedule_value, last_run 
                 FROM scheduled_jobs 
                 WHERE is_active = TRUE 
                 AND schedule_type != 'manual'
-                AND (next_run IS NULL OR next_run <= :now)
                 AND (last_status != 'running' OR last_status IS NULL)
             """)
             
-            result = db.execute(query, {"now": now})
-            jobs_to_run = result.fetchall()
+            result = db.execute(query)
+            jobs_to_check = result.fetchall()
             
-            for job_row in jobs_to_run:
+            for job_row in jobs_to_check:
                 job_id = job_row[0]
                 config_json = job_row[1]
+                schedule_type = job_row[2]
+                schedule_value = job_row[3]
+                last_run = job_row[4]
                 
-                if job_id in self.jobs_registry:
+                # Verificar si debe ejecutarse
+                should_run = self._should_job_run(schedule_type, schedule_value, last_run, now)
+                
+                if should_run and job_id in self.jobs_registry:
                     print(f"🚀 Ejecutando job programado: {job_id}")
-                    asyncio.create_task(self._execute_job_async(job_id, config_json, db))
-                    self._update_next_run(job_id, db)
+                    # Ejecutar en un thread separado para no bloquear
+                    threading.Thread(
+                        target=self._execute_job_sync,
+                        args=(job_id, config_json),
+                        daemon=True
+                    ).start()
         
         except Exception as e:
             print(f"❌ Error verificando jobs: {e}")
         finally:
             db.close()
     
-    def _update_next_run(self, job_id: str, db: Session):
-        """Actualiza la próxima ejecución de un job"""
-        job_data = db.execute(
-            text("SELECT schedule_type, schedule_value FROM scheduled_jobs WHERE job_id = :job_id"),
-            {"job_id": job_id}
-        ).fetchone()
-        
-        if not job_data:
-            return
-        
-        schedule_type, schedule_value = job_data
-        next_run = None
-        now = datetime.now()
+    def _should_job_run(self, schedule_type: str, schedule_value: str, last_run: datetime, now: datetime) -> bool:
+        """Determina si un job debe ejecutarse basado en su programación"""
+        if not last_run:
+            # Si nunca se ha ejecutado, ejecutar ahora
+            return True
         
         if schedule_type == "interval" and schedule_value:
-            minutes = int(schedule_value)
-            next_run = now + timedelta(minutes=minutes)
+            try:
+                minutes = int(schedule_value)
+                next_run = last_run + timedelta(minutes=minutes)
+                return now >= next_run
+            except:
+                return False
+                
         elif schedule_type == "cron" and schedule_value:
-            cron = croniter(schedule_value, now)
-            next_run = cron.get_next(datetime)
+            try:
+                # Usar last_run como base para calcular la próxima ejecución
+                cron = croniter(schedule_value, last_run)
+                next_run = cron.get_next(datetime)
+                # Si la próxima ejecución calculada desde last_run es menor o igual a ahora, ejecutar
+                return next_run <= now
+            except:
+                return False
+                
         elif schedule_type == "daily":
-            next_run = now + timedelta(days=1)
+            next_run = last_run + timedelta(days=1)
+            return now >= next_run
+            
         elif schedule_type == "weekly":
-            next_run = now + timedelta(weeks=1)
+            next_run = last_run + timedelta(weeks=1)
+            return now >= next_run
         
-        if next_run:
+        return False
+    
+    def _execute_job_sync(self, job_id: str, config_json: str):
+        """Ejecuta un job de forma síncrona"""
+        from database import SessionLocal
+        db = SessionLocal()
+        
+        try:
+            job = self.jobs_registry.get(job_id)
+            if not job:
+                return
+            
+            # Marcar como running
             db.execute(
-                text("UPDATE scheduled_jobs SET next_run = :next_run WHERE job_id = :job_id"),
-                {"next_run": next_run, "job_id": job_id}
+                text("UPDATE scheduled_jobs SET last_status = 'running' WHERE job_id = :job_id"),
+                {"job_id": job_id}
             )
             db.commit()
-    
-    async def _execute_job_async(self, job_id: str, config_json: str, db: Session):
-        """Ejecuta un job de forma asíncrona"""
-        job = self.jobs_registry.get(job_id)
-        if not job:
-            return
-        
-        # Marcar como running
-        db.execute(
-            text("UPDATE scheduled_jobs SET last_status = 'running' WHERE job_id = :job_id"),
-            {"job_id": job_id}
-        )
-        db.commit()
-        
-        # Ejecutar job
-        result = await asyncio.to_thread(job.run, config_json or "{}", db)
-        
-        # Guardar resultado (solo el último)
-        status = result.get("status", "failed")
-        output_summary = {
-            "status": status,
-            "timestamp": datetime.now().isoformat(),
-            "duration_seconds": result.get("duration_seconds", 0)
-        }
-        
-        # Si hay output específico, incluir solo un resumen
-        if "output" in result:
-            output_summary["summary"] = str(result["output"])[:500]  # Limitar a 500 caracteres
-        if "error" in result:
-            output_summary["error"] = result["error"]
-        
-        db.execute(
-            text("""
-                UPDATE scheduled_jobs 
-                SET last_run = :last_run, 
-                    last_status = :status,
-                    last_output = :output
-                WHERE job_id = :job_id
-            """),
-            {
-                "last_run": datetime.now(),
+            
+            # Ejecutar job
+            result = job.run(config_json or "{}", db)
+            
+            # Guardar resultado
+            status = result.get("status", "failed")
+            output_summary = {
                 "status": status,
-                "output": json.dumps(output_summary),
-                "job_id": job_id
+                "timestamp": datetime.now().isoformat(),
+                "duration_seconds": result.get("duration_seconds", 0)
             }
-        )
-        db.commit()
+            
+            if "output" in result:
+                output_summary["summary"] = str(result["output"])[:500]
+            if "error" in result:
+                output_summary["error"] = result["error"]
+            
+            # Actualizar con el resultado
+            db.execute(
+                text("""
+                    UPDATE scheduled_jobs 
+                    SET last_run = :last_run, 
+                        last_status = :status,
+                        last_output = :output
+                    WHERE job_id = :job_id
+                """),
+                {
+                    "last_run": datetime.now(),
+                    "status": status,
+                    "output": json.dumps(output_summary),
+                    "job_id": job_id
+                }
+            )
+            db.commit()
+            
+            print(f"✅ Job {job_id} completado con estado: {status}")
+            
+        except Exception as e:
+            print(f"❌ Error ejecutando job {job_id}: {e}")
+            # Marcar como failed
+            try:
+                db.execute(
+                    text("""
+                        UPDATE scheduled_jobs 
+                        SET last_status = 'failed',
+                            last_output = :output
+                        WHERE job_id = :job_id
+                    """),
+                    {
+                        "output": json.dumps({"error": str(e), "timestamp": datetime.now().isoformat()}),
+                        "job_id": job_id
+                    }
+                )
+                db.commit()
+            except:
+                pass
+        finally:
+            db.close()
     
     def setup_routes(self):
         """Configura las rutas del módulo"""
@@ -249,7 +297,7 @@ class JobSchedulerModule(BaseModule):
             if not job:
                 raise HTTPException(status_code=404, detail="Job no encontrado")
             
-            # Validar configuración
+            # Validar configuración JSON
             try:
                 config_dict = json.loads(config.config_json)
                 is_valid, error = job.validate_config(config_dict)
@@ -306,10 +354,6 @@ class JobSchedulerModule(BaseModule):
             
             db.commit()
             
-            # Actualizar next_run si es necesario
-            if config.schedule_type != "manual":
-                self._update_next_run(job_id, db)
-            
             return {"status": "success", "message": "Configuración guardada"}
         
         # Ejecutar job manualmente
@@ -334,9 +378,23 @@ class JobSchedulerModule(BaseModule):
                 config_json = result[0] if result else "{}"
             
             # Ejecutar en background
-            background_tasks.add_task(self._execute_job_async, job_id, config_json, db)
+            background_tasks.add_task(self._execute_job_sync, job_id, config_json)
             
             return {"status": "started", "message": f"Job {job_id} iniciado"}
+        
+        # Eliminar job de la base de datos
+        @self.router.delete(f"{self.config.endpoint}/jobs/{{job_id}}")
+        async def delete_job(job_id: str, db: Session = Depends(get_db)):
+            result = db.execute(
+                text("DELETE FROM scheduled_jobs WHERE job_id = :job_id"),
+                {"job_id": job_id}
+            )
+            db.commit()
+            
+            if result.rowcount > 0:
+                return {"status": "success", "message": f"Job {job_id} eliminado de la base de datos"}
+            else:
+                return {"status": "not_found", "message": f"Job {job_id} no encontrado en la base de datos"}
         
         # Obtener jobs programados activos
         @self.router.get(f"{self.config.endpoint}/scheduled")
@@ -346,23 +404,57 @@ class JobSchedulerModule(BaseModule):
                     SELECT job_id, job_name, schedule_type, schedule_value, 
                            is_active, last_run, next_run, last_status
                     FROM scheduled_jobs
-                    WHERE is_active = TRUE
                     ORDER BY 
-                        CASE WHEN next_run IS NULL THEN 1 ELSE 0 END,
-                        next_run ASC
+                        CASE WHEN is_active = TRUE THEN 0 ELSE 1 END,
+                        last_run DESC
                 """)
             ).fetchall()
             
-            return [
-                {
+            scheduled_jobs = []
+            for r in results:
+                job_data = {
                     "job_id": r[0],
                     "job_name": r[1],
                     "schedule_type": r[2],
                     "schedule_value": r[3],
                     "is_active": r[4],
                     "last_run": r[5],
-                    "next_run": r[6],
                     "last_status": r[7]
                 }
-                for r in results
-            ]
+                
+                # Calcular próxima ejecución basada en la última
+                if r[4] and r[2] != 'manual' and r[5]:  # is_active y no manual y tiene last_run
+                    next_run = self._calculate_next_run(r[2], r[3], r[5])
+                    job_data["next_run"] = next_run
+                else:
+                    job_data["next_run"] = None
+                
+                scheduled_jobs.append(job_data)
+            
+            return scheduled_jobs
+        
+        # Obtener estado del scheduler
+        @self.router.get(f"{self.config.endpoint}/scheduler/status")
+        async def get_scheduler_status():
+            return {
+                "running": self.scheduler_running,
+                "jobs_count": len(self.jobs_registry),
+                "check_interval": "30 seconds"
+            }
+    
+    def _calculate_next_run(self, schedule_type: str, schedule_value: str, last_run: datetime) -> Optional[datetime]:
+        """Calcula la próxima ejecución basada en la última"""
+        try:
+            if schedule_type == "interval" and schedule_value:
+                minutes = int(schedule_value)
+                return last_run + timedelta(minutes=minutes)
+            elif schedule_type == "cron" and schedule_value:
+                cron = croniter(schedule_value, last_run)
+                return cron.get_next(datetime)
+            elif schedule_type == "daily":
+                return last_run + timedelta(days=1)
+            elif schedule_type == "weekly":
+                return last_run + timedelta(weeks=1)
+        except:
+            pass
+        return None

@@ -61,6 +61,8 @@ class TestJob(BaseJob):
                 "output": "Job deshabilitado",
                 "status": "skipped"
             }
+
+        print("test holaaaa")
         
         # Obtener parámetros de configuración
         param1 = config.get("param1", "default")
@@ -115,7 +117,5 @@ class TestJob(BaseJob):
         # Retornar resultado
         return {
             "output": resultado,
-            "param1": param1,
-            "param2": param2,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().strftime("%H:%M:%S")
         }

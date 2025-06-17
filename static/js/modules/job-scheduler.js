@@ -58,6 +58,17 @@ class JobSchedulerModule extends BaseModule {
                         <span class="jobs-count">${this.jobs.length} jobs</span>
                     </div>
                     <div class="jobs-list">
+                        ${this.selectedJob ? `
+                            <div class="job-item" onclick="jobScheduler.showDashboard()" style="background: rgba(59, 130, 246, 0.1); border-color: rgba(59, 130, 246, 0.3);">
+                                <div class="job-icon" style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);">
+                                    <i class="fas fa-home"></i>
+                                </div>
+                                <div class="job-info">
+                                    <h4>Panel Principal</h4>
+                                    <p>Ver todos los jobs</p>
+                                </div>
+                            </div>
+                        ` : ''}
                         ${this.jobs.map(job => `
                             <div class="job-item ${this.selectedJob?.job_id === job.job_id ? 'active' : ''}" 
                                  onclick="jobScheduler.selectJob('${job.job_id}')">
@@ -82,6 +93,9 @@ class JobSchedulerModule extends BaseModule {
     }
 
     getDashboardTemplate() {
+        const activeJobs = this.scheduledJobs.filter(job => job.is_active);
+        const inactiveJobs = this.scheduledJobs.filter(job => !job.is_active);
+        
         return `
             <div class="job-dashboard">
                 <div class="dashboard-header">
@@ -90,41 +104,61 @@ class JobSchedulerModule extends BaseModule {
                 </div>
                 
                 <!-- Jobs activos -->
-                <div class="scheduled-jobs-section">
-                    <h3><i class="fas fa-calendar-alt"></i> Jobs Activos</h3>
-                    <div class="scheduled-jobs-grid">
-                        ${this.scheduledJobs.length > 0 ? 
-                            this.scheduledJobs.map(job => `
-                                <div class="scheduled-job-card ${job.is_active ? '' : 'inactive'}" 
-                                     onclick="jobScheduler.selectJob('${job.job_id}')">
-                                    <div class="job-header">
-                                        <h4>${job.job_name}</h4>
-                                        <span class="job-status ${job.last_status || 'pending'}">${job.last_status || 'pendiente'}</span>
-                                    </div>
-                                    <div class="job-schedule">
-                                        <i class="fas fa-clock"></i>
-                                        <span>${this.getScheduleDescription(job.schedule_type, job.schedule_value)}</span>
-                                    </div>
-                                    <div class="job-times">
-                                        ${job.last_run ? `
-                                            <div class="time-info">
-                                                <label>Última ejecución:</label>
-                                                <span>${this.formatDateTime(job.last_run)}</span>
-                                            </div>
-                                        ` : ''}
-                                        ${job.next_run && job.schedule_type !== 'manual' ? `
-                                            <div class="time-info">
-                                                <label>Próxima ejecución:</label>
-                                                <span>${this.formatDateTime(job.next_run)}</span>
-                                            </div>
-                                        ` : ''}
-                                    </div>
-                                </div>
-                            `).join('')
-                            :
-                            '<p class="no-scheduled">No hay jobs configurados</p>'
-                        }
+                ${activeJobs.length > 0 ? `
+                    <div class="scheduled-jobs-section">
+                        <h3><i class="fas fa-calendar-check"></i> Jobs Activos (${activeJobs.length})</h3>
+                        <div class="scheduled-jobs-grid">
+                            ${activeJobs.map(job => this.getJobCard(job)).join('')}
+                        </div>
                     </div>
+                ` : ''}
+                
+                <!-- Jobs inactivos -->
+                ${inactiveJobs.length > 0 ? `
+                    <div class="scheduled-jobs-section" style="margin-top: 2rem;">
+                        <h3><i class="fas fa-calendar-times"></i> Jobs Inactivos (${inactiveJobs.length})</h3>
+                        <div class="scheduled-jobs-grid">
+                            ${inactiveJobs.map(job => this.getJobCard(job)).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+                
+                ${this.scheduledJobs.length === 0 ? `
+                    <div class="no-scheduled">
+                        <i class="fas fa-inbox" style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.5;"></i>
+                        <p>No hay jobs configurados</p>
+                        <p style="font-size: 0.875rem; opacity: 0.7;">Selecciona un job del panel lateral para comenzar</p>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
+
+    getJobCard(job) {
+        return `
+            <div class="scheduled-job-card ${job.is_active ? '' : 'inactive'}" 
+                 onclick="jobScheduler.selectJob('${job.job_id}')">
+                <div class="job-header">
+                    <h4>${job.job_name}</h4>
+                    <span class="job-status ${job.last_status || 'pending'}">${job.last_status || 'pendiente'}</span>
+                </div>
+                <div class="job-schedule">
+                    <i class="fas fa-clock"></i>
+                    <span>${this.getScheduleDescription(job.schedule_type, job.schedule_value)}</span>
+                </div>
+                <div class="job-times">
+                    ${job.last_run ? `
+                        <div class="time-info">
+                            <label>Última ejecución:</label>
+                            <span>${this.formatDateTime(job.last_run)}</span>
+                        </div>
+                    ` : ''}
+                    ${job.next_run && job.schedule_type !== 'manual' && job.is_active ? `
+                        <div class="time-info">
+                            <label>Próxima ejecución:</label>
+                            <span>${this.formatDateTime(job.next_run)}</span>
+                        </div>
+                    ` : ''}
                 </div>
             </div>
         `;
@@ -148,6 +182,12 @@ class JobSchedulerModule extends BaseModule {
                         <button class="btn btn-success" onclick="jobScheduler.saveConfig()">
                             <i class="fas fa-save"></i> Guardar
                         </button>
+                        ${job.job_id in this.scheduledJobs.map(j => j.job_id) || job.last_run ? `
+                            <button class="btn" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);" 
+                                    onclick="jobScheduler.deleteFromDB()">
+                                <i class="fas fa-trash"></i> Eliminar de BD
+                            </button>
+                        ` : ''}
                     </div>
                 </div>
                 
@@ -173,28 +213,18 @@ class JobSchedulerModule extends BaseModule {
                                     </div>
                                 ` : ''}
                             </div>
+                            ${job.next_run && job.schedule_type !== 'manual' && job.is_active ? `
+                                <div class="next-run-info">
+                                    <i class="fas fa-calendar-check"></i>
+                                    Próxima ejecución: ${this.formatDateTime(job.next_run)}
+                                </div>
+                            ` : ''}
                         </div>
                     ` : ''}
                     
                     <!-- Configuración del Job -->
                     <div class="config-section">
                         <h3><i class="fas fa-cog"></i> Configuración del Job</h3>
-                        
-                        <!-- Editor JSON -->
-                        <div class="json-editor-wrapper">
-                            <div class="editor-header">
-                                <span>Configuración JSON</span>
-                                <div class="editor-actions">
-                                    <button class="btn-small" onclick="jobScheduler.formatJson()">
-                                        <i class="fas fa-magic"></i> Formatear
-                                    </button>
-                                    <button class="btn-small" onclick="jobScheduler.resetConfig()">
-                                        <i class="fas fa-undo"></i> Restaurar
-                                    </button>
-                                </div>
-                            </div>
-                            <textarea id="job-config-editor" class="json-editor" rows="10">${job.config_json || '{}'}</textarea>
-                        </div>
                         
                         <!-- Programación -->
                         <div class="schedule-config">
@@ -226,14 +256,26 @@ class JobSchedulerModule extends BaseModule {
                                         <span>Job activo</span>
                                     </label>
                                 </div>
-                                
-                                ${job.next_run && job.schedule_type !== 'manual' ? `
-                                    <div class="next-run-info">
-                                        <i class="fas fa-calendar-check"></i>
-                                        Próxima ejecución: ${this.formatDateTime(job.next_run)}
-                                    </div>
-                                ` : ''}
                             </div>
+                        </div>
+                        
+                        <!-- Editor JSON para parámetros -->
+                        <div class="json-editor-wrapper" style="margin-top: 2rem;">
+                            <div class="editor-header">
+                                <span>Parámetros del Job (JSON)</span>
+                                <div class="editor-actions">
+                                    <button class="btn-small" onclick="jobScheduler.formatJson()">
+                                        <i class="fas fa-magic"></i> Formatear
+                                    </button>
+                                    <button class="btn-small" onclick="jobScheduler.resetConfig()">
+                                        <i class="fas fa-undo"></i> Restaurar
+                                    </button>
+                                </div>
+                            </div>
+                            <textarea id="job-config-editor" class="json-editor" rows="10">${job.config_json || '{}'}</textarea>
+                            <small style="color: var(--text-secondary); display: block; margin-top: 0.5rem;">
+                                <i class="fas fa-info-circle"></i> Estos parámetros se pasan al job cuando se ejecuta
+                            </small>
                         </div>
                     </div>
                 </div>
@@ -251,6 +293,11 @@ class JobSchedulerModule extends BaseModule {
             this.selectedJob = { ...jobInfo, ...config };
             this.render();
         }
+    }
+
+    showDashboard() {
+        this.selectedJob = null;
+        this.render();
     }
 
     async executeJob() {
@@ -331,6 +378,34 @@ class JobSchedulerModule extends BaseModule {
             } else {
                 this.showNotification('Error guardando configuración', 'error');
             }
+        }
+    }
+
+    async deleteFromDB() {
+        if (!this.selectedJob) return;
+        
+        if (!confirm(`¿Eliminar ${this.selectedJob.job_name} de la base de datos?\n\nEsto eliminará toda la configuración y programación, pero el job seguirá disponible.`)) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`${this.endpoint}/jobs/${this.selectedJob.job_id}`, {
+                method: 'DELETE'
+            });
+            
+            const result = await response.json();
+            if (result.status === 'success') {
+                this.showNotification('Job eliminado de la base de datos', 'success');
+                
+                // Volver al dashboard
+                this.selectedJob = null;
+                await this.loadJobs();
+                this.render();
+            } else {
+                this.showNotification('Job no encontrado en la base de datos', 'error');
+            }
+        } catch (error) {
+            this.showNotification('Error eliminando job', 'error');
         }
     }
 
