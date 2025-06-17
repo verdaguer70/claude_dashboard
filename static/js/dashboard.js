@@ -28,9 +28,7 @@ async function loadModuleScripts() {
     await loadScript('/static/js/modules/example.js').catch(err => 
         console.log('Módulo example.js no encontrado, usando vista genérica')
     );
-    await loadScript('/static/js/modules/json-editor.js').catch(err => 
-    console.log('Módulo json-editor.js no encontrado')
-    );
+
 
 
     await loadScript('/static/js/modules/job-scheduler.js').catch(err => 
